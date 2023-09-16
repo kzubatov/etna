@@ -5,7 +5,8 @@ namespace etna
 
 void ResourceStates::setTextureState(vk::CommandBuffer com_buffer, vk::Image image,
   vk::PipelineStageFlagBits2 pipeline_stage_flag, vk::AccessFlags2 access_flags,
-  vk::ImageLayout layout, vk::ImageAspectFlags aspect_flags)
+  vk::ImageLayout layout, vk::ImageAspectFlags aspect_flags, 
+  uint32_t baseMipLevel, uint32_t levelCount)
 {
   HandleType resHandle = reinterpret_cast<HandleType>((VkImage)image);
   if (currentStates.count(resHandle) == 0)
@@ -38,8 +39,8 @@ void ResourceStates::setTextureState(vk::CommandBuffer com_buffer, vk::Image ima
       .subresourceRange =
       {
         .aspectMask = aspect_flags,
-        .baseMipLevel = 0,
-        .levelCount = 1,
+        .baseMipLevel = baseMipLevel,
+        .levelCount = levelCount,
         .baseArrayLayer = 0,
         .layerCount = 1,
       }

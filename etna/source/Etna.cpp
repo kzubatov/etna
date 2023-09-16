@@ -62,7 +62,8 @@ namespace etna
     return set;
   }
 
-  Image create_image_from_bytes(Image::CreateInfo info, vk::CommandBuffer command_buffer, const void *data)
+  Image create_image_from_bytes(Image::CreateInfo info, vk::CommandBuffer command_buffer, const void *data,
+    vk::AccessFlags2 final_image_access_flags, vk::ImageLayout final_image_layout)
   {
     const auto block_size = vk::blockSize(info.format);
     const auto image_size = block_size * info.extent.width * info.extent.height * info.extent.depth;
@@ -85,10 +86,14 @@ namespace etna
     vkBeginCommandBuffer(command_buffer, &beginInfo);
 
     info.imageUsage |= vk::ImageUsageFlagBits::eTransferDst;
+    if (info.mipLevels > 1) {
+      info.imageUsage |= vk::ImageUsageFlagBits::eTransferSrc;  
+    }
+
     auto image = g_context->createImage(info);
     etna::set_state(command_buffer, image.get(), vk::PipelineStageFlagBits2::eTransfer,
       vk::AccessFlagBits2::eTransferWrite, vk::ImageLayout::eTransferDstOptimal,
-      image.getAspectMaskByFormat());
+      image.getAspectMaskByFormat(), 0, info.mipLevels);
     etna::flush_barriers(command_buffer);
 
     VkBufferImageCopy region{};
@@ -113,6 +118,52 @@ namespace etna
         &region
     );
 
+    int32_t mipWidth = info.extent.width;
+    int32_t mipHeight = info.extent.height;
+
+    for (uint32_t i = 1; i < info.mipLevels; ++i) {
+      etna::set_state(command_buffer, image.get(), vk::PipelineStageFlagBits2::eTransfer,
+        vk::AccessFlagBits2::eTransferRead, vk::ImageLayout::eTransferSrcOptimal,
+        image.getAspectMaskByFormat(), i - 1, 1);
+      
+      etna::flush_barriers(command_buffer);
+
+      VkImageBlit blit{};
+      blit.srcOffsets[0] = {0, 0, 0};
+      blit.srcOffsets[1] = {mipWidth, mipHeight, 1};
+      blit.srcSubresource.aspectMask = (VkImageAspectFlags)image.getAspectMaskByFormat();
+      blit.srcSubresource.mipLevel = i - 1;
+      blit.srcSubresource.baseArrayLayer = 0;
+      blit.srcSubresource.layerCount = 1;
+      blit.dstOffsets[0] = {0, 0, 0};
+      blit.dstOffsets[1] = { mipWidth > 1 ? mipWidth >> 1 : 1, mipHeight > 1 ? mipHeight >> 1 : 1, 1 };
+      blit.dstSubresource.aspectMask = (VkImageAspectFlags)image.getAspectMaskByFormat();
+      blit.dstSubresource.mipLevel = i;
+      blit.dstSubresource.baseArrayLayer = 0;
+      blit.dstSubresource.layerCount = 1;
+
+      vkCmdBlitImage(command_buffer, image.get(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        image.get(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+      etna::set_state(command_buffer, image.get(), vk::PipelineStageFlagBits2::eTransfer,
+        vk::AccessFlagBits2::eTransferWrite, vk::ImageLayout::eTransferDstOptimal,
+        image.getAspectMaskByFormat(), i - 1, 1);
+      etna::flush_barriers(command_buffer);
+      
+      if (mipWidth > 1) mipWidth >>= 1;
+      if (mipHeight > 1) mipHeight >>= 1;
+    }
+
+    etna::set_state(command_buffer, image.get(), vk::PipelineStageFlagBits2::eTransfer,
+      vk::AccessFlagBits2::eTransferWrite, vk::ImageLayout::eTransferDstOptimal,
+      image.getAspectMaskByFormat(), info.mipLevels - 1, 1);
+    etna::flush_barriers(command_buffer);
+
+    etna::set_state(command_buffer, image.get(), vk::PipelineStageFlagBits2::eAllCommands,
+      final_image_access_flags, final_image_layout,
+      image.getAspectMaskByFormat(), 0, info.mipLevels);
+    etna::flush_barriers(command_buffer);
+
     vkEndCommandBuffer(command_buffer);
 
     VkSubmitInfo submitInfo{};
@@ -136,10 +187,11 @@ namespace etna
 
   void set_state(vk::CommandBuffer com_buffer, vk::Image image,
     vk::PipelineStageFlagBits2 pipeline_stage_flag, vk::AccessFlags2 access_flags,
-    vk::ImageLayout layout, vk::ImageAspectFlags aspect_flags)
+    vk::ImageLayout layout, vk::ImageAspectFlags aspect_flags, 
+    uint32_t baseMipLevel, uint32_t levelCount)
   {
     etna::get_context().getResourceTracker().setTextureState(com_buffer, image,
-      pipeline_stage_flag, access_flags, layout, aspect_flags);
+      pipeline_stage_flag, access_flags, layout, aspect_flags, baseMipLevel, levelCount);
   }
 
   void finish_frame(vk::CommandBuffer com_buffer)

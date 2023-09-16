@@ -27,7 +27,8 @@ class ResourceStates
 public:
   void setTextureState(vk::CommandBuffer com_buffer, vk::Image image,
     vk::PipelineStageFlagBits2 pipeline_stage_flag, vk::AccessFlags2 access_flags,
-    vk::ImageLayout layout, vk::ImageAspectFlags aspect_flags);
+    vk::ImageLayout layout, vk::ImageAspectFlags aspect_flags, 
+    uint32_t baseMipLevel = 0, uint32_t levelCount = 1);
 
   void setColorTarget(vk::CommandBuffer com_buffer, vk::Image image);
   void setDepthTarget(vk::CommandBuffer com_buffer, vk::Image image);
