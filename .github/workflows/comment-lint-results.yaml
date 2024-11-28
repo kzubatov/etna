@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: ZedThree/clang-tidy-review/post@v0.14.0 # v0.17 is buggy
+      - uses: ZedThree/clang-tidy-review/post@v0.20.0 # v0.17 is buggy
         with:
           lgtm_comment_body: 'А я всегда говорил, нормально делай — нормально будет! 👍'
           annotations: false
