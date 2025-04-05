@@ -168,6 +168,19 @@ void set_state(
     com_buffer, image, pipeline_stage_flags, access_flags, layout, aspect_flags, force);
 }
 
+void set_state(
+  vk::CommandBuffer com_buffer,
+  vk::Buffer buffer,
+  vk::PipelineStageFlags2 pipeline_stage_flags,
+  vk::AccessFlags2 access_flags,
+  vk::DeviceSize range,
+  vk::DeviceSize offset,
+  ForceSetState force)
+{
+  etna::get_context().getResourceTracker().setBufferState(
+    com_buffer, buffer, pipeline_stage_flags, access_flags, range, offset, force);
+}
+
 void finish_frame(vk::CommandBuffer com_buffer)
 {
   etna::get_context().getResourceTracker().flushBarriers(com_buffer);

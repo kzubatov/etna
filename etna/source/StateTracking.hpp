@@ -22,9 +22,17 @@ class ResourceStates
     vk::CommandBuffer owner = {};
     bool operator==(const TextureState& other) const = default;
   };
-  using State = std::variant<TextureState>; // TODO: Add buffers
+  struct BufferState
+  {
+    vk::PipelineStageFlags2 piplineStageFlags = {};
+    vk::AccessFlags2 accessFlags = {};
+    vk::CommandBuffer owner = {};
+    bool operator==(const BufferState& other) const = default;
+  };
+  using State = std::variant<TextureState, BufferState>;
   std::unordered_map<HandleType, State> currentStates;
-  std::vector<vk::ImageMemoryBarrier2> barriersToFlush;
+  std::vector<vk::ImageMemoryBarrier2> imageBarriersToFlush;
+  std::vector<vk::BufferMemoryBarrier2> bufferBarriersToFlush;
 
 public:
   void setExternalTextureState(
@@ -33,6 +41,9 @@ public:
     vk::AccessFlags2 access_flags,
     vk::ImageLayout layout);
 
+  void setExternalBufferState(
+    vk::Buffer buffer, vk::PipelineStageFlags2 pipeline_stage_flag, vk::AccessFlags2 access_flags);
+
   void setTextureState(
     vk::CommandBuffer com_buffer,
     vk::Image image,
@@ -40,6 +51,15 @@ public:
     vk::AccessFlags2 access_flags,
     vk::ImageLayout layout,
     vk::ImageAspectFlags aspect_flags,
+    ForceSetState force = ForceSetState::eFalse);
+
+  void setBufferState(
+    vk::CommandBuffer com_buffer,
+    vk::Buffer buffer,
+    vk::PipelineStageFlags2 pipeline_stage_flag,
+    vk::AccessFlags2 access_flags,
+    vk::DeviceSize range = vk::WholeSize,
+    vk::DeviceSize offset = 0,
     ForceSetState force = ForceSetState::eFalse);
 
   void setColorTarget(

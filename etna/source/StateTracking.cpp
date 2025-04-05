@@ -22,6 +22,17 @@ void ResourceStates::setExternalTextureState(
   };
 }
 
+void ResourceStates::setExternalBufferState(
+  vk::Buffer buffer, vk::PipelineStageFlags2 pipeline_stage_flag, vk::AccessFlags2 access_flags)
+{
+  HandleType resHandle = std::bit_cast<HandleType>(static_cast<VkBuffer>(buffer));
+  currentStates[resHandle] = BufferState{
+    .piplineStageFlags = pipeline_stage_flag,
+    .accessFlags = access_flags,
+    .owner = {},
+  };
+}
+
 void ResourceStates::setTextureState(
   vk::CommandBuffer com_buffer,
   vk::Image image,
@@ -45,7 +56,7 @@ void ResourceStates::setTextureState(
   auto& oldState = std::get<0>(currentStates[resHandle]);
   if (force == ForceSetState::eFalse && newState == oldState)
     return;
-  barriersToFlush.push_back(vk::ImageMemoryBarrier2{
+  imageBarriersToFlush.push_back(vk::ImageMemoryBarrier2{
     .srcStageMask = oldState.piplineStageFlags,
     .srcAccessMask = oldState.accessFlags,
     .dstStageMask = newState.piplineStageFlags,
@@ -67,17 +78,60 @@ void ResourceStates::setTextureState(
   oldState = newState;
 }
 
+void ResourceStates::setBufferState(
+  vk::CommandBuffer com_buffer,
+  vk::Buffer buffer,
+  vk::PipelineStageFlags2 pipeline_stage_flag,
+  vk::AccessFlags2 access_flags,
+  vk::DeviceSize range,
+  vk::DeviceSize offset,
+  ForceSetState force)
+{
+  HandleType resHandle = std::bit_cast<HandleType>(static_cast<VkBuffer>(buffer));
+  if (currentStates.count(resHandle) == 0)
+  {
+    currentStates[resHandle] = BufferState{.owner = com_buffer};
+  }
+  BufferState newState{
+    .piplineStageFlags = pipeline_stage_flag,
+    .accessFlags = access_flags,
+    .owner = com_buffer,
+  };
+  auto& oldState = std::get<1>(currentStates[resHandle]);
+  if (force == ForceSetState::eFalse && newState == oldState)
+    return;
+  bufferBarriersToFlush.push_back(vk::BufferMemoryBarrier2{
+    .srcStageMask = oldState.piplineStageFlags,
+    .srcAccessMask = oldState.accessFlags,
+    .dstStageMask = newState.piplineStageFlags,
+    .dstAccessMask = newState.accessFlags,
+    .srcQueueFamilyIndex = vk::QueueFamilyIgnored,
+    .dstQueueFamilyIndex = vk::QueueFamilyIgnored,
+    .buffer = buffer,
+    .offset = offset,
+    .size = range,
+  });
+  oldState = newState;
+}
+
 void ResourceStates::flushBarriers(vk::CommandBuffer com_buf)
 {
-  if (barriersToFlush.empty())
+  const bool noImageBarriers = imageBarriersToFlush.empty();
+  const bool noBufferBarriers = bufferBarriersToFlush.empty();
+  if (noImageBarriers && noBufferBarriers)
     return;
+
   vk::DependencyInfo depInfo{
     .dependencyFlags = vk::DependencyFlagBits::eByRegion,
-    .imageMemoryBarrierCount = static_cast<uint32_t>(barriersToFlush.size()),
-    .pImageMemoryBarriers = barriersToFlush.data(),
+    .bufferMemoryBarrierCount = static_cast<uint32_t>(bufferBarriersToFlush.size()),
+    .pBufferMemoryBarriers = noBufferBarriers ? nullptr : bufferBarriersToFlush.data(),
+    .imageMemoryBarrierCount = static_cast<uint32_t>(imageBarriersToFlush.size()),
+    .pImageMemoryBarriers = noImageBarriers ? nullptr : imageBarriersToFlush.data(),
   };
   com_buf.pipelineBarrier2(depInfo);
-  barriersToFlush.clear();
+
+  imageBarriersToFlush.clear();
+  bufferBarriersToFlush.clear();
 }
 
 void ResourceStates::setColorTarget(

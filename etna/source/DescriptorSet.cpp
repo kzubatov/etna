@@ -255,18 +255,28 @@ void DescriptorSet::processBarriers() const
   auto& layoutInfo = get_context().getDescriptorSetLayouts().getLayoutInfo(layoutId);
   for (auto& binding : bindings)
   {
-    if (std::get_if<ImageBinding>(&binding.resources) == nullptr)
-      continue; // Add processing for buffer here if you need.
-
-    auto& bindingInfo = layoutInfo.getBinding(binding.binding);
-    const ImageBinding& imgData = std::get<ImageBinding>(binding.resources);
-    etna::set_state(
-      command_buffer,
-      imgData.image.get(),
-      shader_stage_to_pipeline_stage(bindingInfo.stageFlags),
-      descriptor_type_to_access_flag(bindingInfo.descriptorType),
-      imgData.descriptor_info.imageLayout,
-      imgData.image.getAspectMaskByFormat());
+    if (auto imgData = std::get_if<ImageBinding>(&binding.resources); imgData)
+    {
+      auto& bindingInfo = layoutInfo.getBinding(binding.binding);
+      etna::set_state(
+        command_buffer,
+        imgData->image.get(),
+        shader_stage_to_pipeline_stage(bindingInfo.stageFlags),
+        descriptor_type_to_access_flag(bindingInfo.descriptorType),
+        imgData->descriptor_info.imageLayout,
+        imgData->image.getAspectMaskByFormat());
+    }
+    else if (auto bufData = std::get_if<BufferBinding>(&binding.resources); bufData)
+    {
+      auto& bindingInfo = layoutInfo.getBinding(binding.binding);
+      etna::set_state(
+        command_buffer,
+        bufData->buffer.get(),
+        shader_stage_to_pipeline_stage(bindingInfo.stageFlags),
+        descriptor_type_to_access_flag(bindingInfo.descriptorType),
+        bufData->descriptor_info.range,
+        bufData->descriptor_info.offset);
+    }
   }
 }
 

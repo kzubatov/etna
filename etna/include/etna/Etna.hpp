@@ -123,6 +123,26 @@ void set_state(
   ForceSetState force = ForceSetState::eFalse);
 
 /**
+ * \brief Sets the state of an buffer before using it in a certain way.
+ * Note that Etna calls this automatically in some cases.
+ *
+ * \param com_buffer The command buffer being recorded.
+ * \param buffer The buffer to set the state for.
+ * \param pipeline_stage_flags Where will the buffer be used?
+ * \param access_flags How will it be used?
+ * \param range Size in bytes of the affected area of buffer's memory
+ * \param offset Offset in bytes into the memory for buffer
+ */
+void set_state(
+  vk::CommandBuffer com_buffer,
+  vk::Buffer buffer,
+  vk::PipelineStageFlags2 pipeline_stage_flags,
+  vk::AccessFlags2 access_flags,
+  vk::DeviceSize range,
+  vk::DeviceSize offset,
+  ForceSetState force = ForceSetState::eFalse);
+
+/**
  * \brief Flushes all barriers resulting from set_state calls.
  * \note Remember to call this before any draw/dispatch/transfer commands!
  *
