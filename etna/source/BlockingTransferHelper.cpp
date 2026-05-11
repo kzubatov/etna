@@ -21,7 +21,6 @@ BlockingTransferHelper::BlockingTransferHelper(CreateInfo info)
       .name = "BlockingTransferHelper::stagingBuffer",
     })}
 {
-  stagingBuffer.map();
 }
 
 void BlockingTransferHelper::uploadBuffer(

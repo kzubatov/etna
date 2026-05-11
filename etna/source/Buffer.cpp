@@ -45,7 +45,6 @@ Buffer::Buffer(VmaAllocator alloc, CreateInfo info)
     vk::to_string(static_cast<vk::Result>(retcode)));
   buffer = vk::Buffer(buf);
 
-  // make map() optional if allocationCreate has VMA_ALLOCATION_CREATE_MAPPED_BIT
   mapped = reinterpret_cast<std::byte*>(allocInfo.pMappedData);
   ETNA_VERIFY(mapped == nullptr || info.allocationCreate & VMA_ALLOCATION_CREATE_MAPPED_BIT);
 
@@ -86,9 +85,6 @@ void Buffer::reset()
   if (!buffer)
     return;
 
-  if (mapped != nullptr)
-    unmap();
-
   vmaDestroyBuffer(allocator, VkBuffer(buffer), allocation);
   allocator = {};
   allocation = {};
@@ -97,6 +93,7 @@ void Buffer::reset()
 
 std::byte* Buffer::map()
 {
+  ETNA_VERIFY(mapped == nullptr);
   void* result;
 
   // I can't think of a use case where failing to do a mapping

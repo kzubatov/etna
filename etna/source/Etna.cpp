@@ -102,9 +102,7 @@ Image create_image_from_bytes(Image::CreateInfo info, vk::CommandBuffer cmd_buf,
     .name = "tmp_staging_buf",
   });
 
-  auto* mappedMem = stagingBuf.map();
-  std::memcpy(mappedMem, data, fullSize);
-  stagingBuf.unmap();
+  std::memcpy(stagingBuf.data(), data, fullSize);
 
   ETNA_CHECK_VK_RESULT(cmd_buf.begin(vk::CommandBufferBeginInfo{
     .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit,
