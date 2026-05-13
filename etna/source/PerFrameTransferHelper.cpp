@@ -63,7 +63,6 @@ PerFrameTransferHelper::PerFrameTransferHelper(CreateInfo info)
     stagingSize <= MAX_STAGING_SIZE,
     "PerFrameTransferHelper: total staging size can not exceed {} * multibuffering.",
     MAX_STAGING_SIZE);
-  stagingBuffer.iterate([](auto& buf) { buf.map(); });
 }
 
 void PerFrameTransferHelper::UploadProcessor::finish()
