@@ -23,6 +23,7 @@ public:
     float maxLod = VK_LOD_CLAMP_NONE;
     bool compareEnable = false;
     vk::CompareOp compareOp = vk::CompareOp::eLessOrEqual;
+    vk::BorderColor borderColor = vk::BorderColor::eFloatTransparentBlack;
   };
 
   explicit Sampler(CreateInfo info);
