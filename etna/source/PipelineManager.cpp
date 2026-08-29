@@ -6,6 +6,7 @@
 #include <etna/Assert.hpp>
 #include <etna/ShaderProgram.hpp>
 #include <etna/VulkanFormatter.hpp>
+#include <etna/SpecializationConstants.hpp>
 
 namespace etna
 {
@@ -109,7 +110,7 @@ ComputePipeline PipelineManager::createComputePipeline(
 {
   const PipelineId pipelineId = static_cast<PipelineId>(pipelineIdCounter++);
   const ShaderProgramId progId = shaderManager.getProgram(shader_program_name);
-  const std::vector<vk::PipelineShaderStageCreateInfo> shaderStages =
+  std::vector<vk::PipelineShaderStageCreateInfo> shaderStages =
     shaderManager.getShaderStages(progId);
 
   ETNA_VERIFYF(
@@ -117,15 +118,27 @@ ComputePipeline PipelineManager::createComputePipeline(
     "Incorrect shader program, expected 1 stage for ComputePipeline, but got {}!",
     shaderStages.size());
 
+  auto shaderModuleSpecConsts = shaderManager.getSpecializationConstants(progId).front();
+  const auto maxOverridedConsts =
+    std::min(info.specializationConstants.size(), shaderModuleSpecConsts.size());
+
+  ShaderProgramSpecializationConstants specConsts(1, maxOverridedConsts);
+  specConsts.overrideSpecializationConstants(
+    shaderStages.front(), shaderModuleSpecConsts, info.specializationConstants);
+
   pipelines.emplace(
     pipelineId,
     createComputePipelineInternal(device, shaderManager.getProgramLayout(progId), shaderStages[0]));
   computePipelineParameters.emplace(pipelineId, ComputeParameters{progId, std::move(info)});
 
+  if (!specConsts.getLog().empty())
+    spdlog::info("Program Info for '{}':\n{}", shader_program_name, specConsts.getLog());
+
   return ComputePipeline(this, pipelineId, progId);
 };
 
-static void print_prog_info(const etna::ShaderProgramInfo& info, const std::string& name)
+static void print_prog_info(
+  const etna::ShaderProgramInfo& info, const std::string& name, std::string_view spec_consts_log)
 {
   std::string result;
   auto it = std::back_inserter(result);
@@ -157,7 +170,7 @@ static void print_prog_info(const etna::ShaderProgramInfo& info, const std::stri
   if (pc.size > 0)
     fmt::format_to(it, "  PushConst size = {}, stages = {}\n", pc.size, pc.stageFlags);
 
-  spdlog::info("Program Info for '{}':\n{}", name, result);
+  spdlog::info("Program Info for '{}':\n{}{}", name, result, spec_consts_log);
 }
 
 GraphicsPipeline PipelineManager::createGraphicsPipeline(
@@ -166,14 +179,81 @@ GraphicsPipeline PipelineManager::createGraphicsPipeline(
   const PipelineId pipelineId = static_cast<PipelineId>(pipelineIdCounter++);
   const ShaderProgramId progId = shaderManager.getProgram(shader_program_name);
 
+  auto stages = shaderManager.getShaderStages(progId);
+  auto shaderModulesSpecConsts = shaderManager.getSpecializationConstants(progId);
+  size_t maxOverridedConsts = 0;
+  for (uint32_t i = 0; i < stages.size(); ++i)
+  {
+    switch (stages[i].stage)
+    {
+    case vk::ShaderStageFlagBits::eVertex:
+      maxOverridedConsts +=
+        std::max(shaderModulesSpecConsts[i].size(), info.vertexSpecConsts.size());
+      break;
+    case vk::ShaderStageFlagBits::eTessellationControl:
+      maxOverridedConsts +=
+        std::max(shaderModulesSpecConsts[i].size(), info.tessellationControlSpecConsts.size());
+      break;
+    case vk::ShaderStageFlagBits::eTessellationEvaluation:
+      maxOverridedConsts +=
+        std::max(shaderModulesSpecConsts[i].size(), info.tessellationEvalSpecConsts.size());
+      break;
+    case vk::ShaderStageFlagBits::eGeometry:
+      maxOverridedConsts +=
+        std::max(shaderModulesSpecConsts[i].size(), info.geometrySpecConsts.size());
+      break;
+    case vk::ShaderStageFlagBits::eFragment:
+      maxOverridedConsts +=
+        std::max(shaderModulesSpecConsts[i].size(), info.fragmentSpecConsts.size());
+      break;
+    default:
+      ETNA_PANIC(
+        "Unsupported shader stage {} for graphics pipeline", vk::to_string(stages[i].stage));
+      break;
+    }
+  }
+
+  ShaderProgramSpecializationConstants specConsts(1, maxOverridedConsts);
+  for (uint32_t i = 0; i < stages.size(); ++i)
+  {
+    switch (stages[i].stage)
+    {
+    case vk::ShaderStageFlagBits::eVertex:
+      specConsts.overrideSpecializationConstants(
+        stages[i], shaderModulesSpecConsts[i], info.vertexSpecConsts);
+      break;
+    case vk::ShaderStageFlagBits::eTessellationControl:
+      specConsts.overrideSpecializationConstants(
+        stages[i], shaderModulesSpecConsts[i], info.tessellationControlSpecConsts);
+      break;
+    case vk::ShaderStageFlagBits::eTessellationEvaluation:
+      specConsts.overrideSpecializationConstants(
+        stages[i], shaderModulesSpecConsts[i], info.tessellationEvalSpecConsts);
+      break;
+    case vk::ShaderStageFlagBits::eGeometry:
+      specConsts.overrideSpecializationConstants(
+        stages[i], shaderModulesSpecConsts[i], info.geometrySpecConsts);
+      break;
+    case vk::ShaderStageFlagBits::eFragment:
+      specConsts.overrideSpecializationConstants(
+        stages[i], shaderModulesSpecConsts[i], info.fragmentSpecConsts);
+      break;
+    default:
+      ETNA_PANIC(
+        "Unsupported shader stage {} for graphics pipeline", vk::to_string(stages[i].stage));
+      break;
+    }
+  }
+
   pipelines.emplace(
     pipelineId,
     create_graphics_pipeline_internal(
-      device, shaderManager.getProgramLayout(progId), shaderManager.getShaderStages(progId), info));
+      device, shaderManager.getProgramLayout(progId), stages, info));
   graphicsPipelineParameters.emplace(pipelineId, PipelineParameters{progId, std::move(info)});
 
   GraphicsPipeline pipeline(this, pipelineId, progId);
-  print_prog_info(shaderManager.getProgramInfo(shader_program_name), shader_program_name);
+  print_prog_info(
+    shaderManager.getProgramInfo(shader_program_name), shader_program_name, specConsts.getLog());
   return pipeline;
 }
 
