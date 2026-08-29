@@ -44,6 +44,50 @@ struct SpvModDeleter
   }
 };
 
+static std::optional<ShaderModuleSpecializationConstant::Type> get_spec_const_type(
+  const SpvReflectTypeDescription& type_desc)
+{
+  using Type = ShaderModuleSpecializationConstant::Type;
+
+  switch (type_desc.type_flags)
+  {
+  case SPV_REFLECT_TYPE_FLAG_BOOL:
+    return Type::Bool;
+  case SPV_REFLECT_TYPE_FLAG_INT: {
+    const bool signedType = static_cast<bool>(type_desc.traits.numeric.scalar.signedness);
+    switch (type_desc.traits.numeric.scalar.width)
+    {
+    case 8:
+      return signedType ? Type::Int8 : Type::Uint8;
+    case 16:
+      return signedType ? Type::Int16 : Type::Uint16;
+    case 32:
+      return signedType ? Type::Int32 : Type::Uint32;
+    case 64:
+      return signedType ? Type::Int64 : Type::Uint64;
+    default:
+      break;
+    }
+  }
+  break;
+  case SPV_REFLECT_TYPE_FLAG_FLOAT:
+    switch (type_desc.traits.numeric.scalar.width)
+    {
+    case 16:
+      return Type::Float16;
+    case 32:
+      return Type::Float32;
+    case 64:
+      return Type::Float64;
+    default:
+      break;
+    }
+    break;
+  default:
+    break;
+  }
+  return std::nullopt;
+}
 
 #define ETNA_SPV_REFLECT_VERIFY(res, path)                                                         \
   ETNA_VERIFYF((res) == SPV_REFLECT_RESULT_SUCCESS, "SPIR-V parse error in {}", (path))
@@ -111,6 +155,45 @@ void ShaderModule::reload(vk::Device device)
     pushConst.size = 0u;
     pushConst.offset = 0u;
     pushConst.stageFlags = vk::ShaderStageFlags{};
+  }
+
+  specializationConstants.clear();
+  if (auto specConstantCount = spvModule->spec_constant_count; specConstantCount > 0)
+  {
+    specializationConstants.reserve(specConstantCount);
+    for (uint32_t i = 0; i < specConstantCount; ++i)
+    {
+      const auto& specConst = spvModule->spec_constants[i];
+
+      // TODO: this is legal for build-in constants redefinition, but we don't support it yet
+      if (specConst.name == nullptr)
+      {
+        ETNA_PANIC(
+          "SPIRV {} parse error: specialization constant {} has no name",
+          path,
+          specConst.constant_id);
+      }
+
+      if (specConst.default_value == nullptr)
+      {
+        ETNA_PANIC(
+          "SPIRV {} parse error: specialization constant {} has no default value",
+          path,
+          specConst.constant_id);
+      }
+
+      const auto type = get_spec_const_type(*specConst.type_description);
+      if (!type.has_value())
+      {
+        ETNA_PANIC(
+          "SPIRV {} parse error: specialization constant {} has unsupported type",
+          path,
+          specConst.constant_id);
+      }
+
+      specializationConstants.insert(
+        {specConst.name, ShaderModuleSpecializationConstant{specConst.constant_id, *type}});
+    }
   }
 }
 
@@ -325,6 +408,23 @@ std::vector<vk::PipelineShaderStageCreateInfo> ShaderProgramManager::getShaderSt
     stages.push_back(info);
   }
   return stages;
+}
+
+std::vector<ShaderModuleSpecializationConstants> ShaderProgramManager::getShaderStagesSpecConsts(
+  ShaderProgramId id) const
+{
+  auto& prog = getProgInternal(id);
+
+  std::vector<ShaderModuleSpecializationConstants> specConsts;
+  specConsts.reserve(prog.moduleIds.size());
+
+  for (auto modId : prog.moduleIds)
+  {
+    const auto& shaderMod = getModule(modId);
+    specConsts.push_back(shaderMod.getSpecializationConstants());
+  }
+
+  return specConsts;
 }
 
 vk::DescriptorSetLayout ShaderProgramManager::getDescriptorLayout(
