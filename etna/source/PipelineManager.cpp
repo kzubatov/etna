@@ -6,6 +6,7 @@
 #include <etna/Assert.hpp>
 #include <etna/ShaderProgram.hpp>
 #include <etna/VulkanFormatter.hpp>
+#include <etna/SpecializationConstants.hpp>
 
 namespace etna
 {
@@ -109,8 +110,12 @@ ComputePipeline PipelineManager::createComputePipeline(
 {
   const PipelineId pipelineId = static_cast<PipelineId>(pipelineIdCounter++);
   const ShaderProgramId progId = shaderManager.getProgram(shader_program_name);
-  const std::vector<vk::PipelineShaderStageCreateInfo> shaderStages =
-    shaderManager.getShaderStages(progId);
+  const auto stagesStorage = shaderManager.getShaderStages(
+    progId,
+    {
+      .compute = info.specializationConstants,
+    });
+  const auto shaderStages = stagesStorage.getVkStages();
 
   ETNA_VERIFYF(
     shaderStages.size() == 1,
@@ -122,10 +127,14 @@ ComputePipeline PipelineManager::createComputePipeline(
     createComputePipelineInternal(device, shaderManager.getProgramLayout(progId), shaderStages[0]));
   computePipelineParameters.emplace(pipelineId, ComputeParameters{progId, std::move(info)});
 
+  if (auto log = stagesStorage.getLog(); !log.empty())
+    spdlog::info("Program Info for '{}':\n{}", shader_program_name, log);
+
   return ComputePipeline(this, pipelineId, progId);
 };
 
-static void print_prog_info(const etna::ShaderProgramInfo& info, const std::string& name)
+static void print_prog_info(
+  const etna::ShaderProgramInfo& info, const std::string& name, std::string_view spec_consts_log)
 {
   std::string result;
   auto it = std::back_inserter(result);
@@ -157,7 +166,7 @@ static void print_prog_info(const etna::ShaderProgramInfo& info, const std::stri
   if (pc.size > 0)
     fmt::format_to(it, "  PushConst size = {}, stages = {}\n", pc.size, pc.stageFlags);
 
-  spdlog::info("Program Info for '{}':\n{}", name, result);
+  spdlog::info("Program Info for '{}':\n{}{}", name, result, spec_consts_log);
 }
 
 GraphicsPipeline PipelineManager::createGraphicsPipeline(
@@ -166,14 +175,25 @@ GraphicsPipeline PipelineManager::createGraphicsPipeline(
   const PipelineId pipelineId = static_cast<PipelineId>(pipelineIdCounter++);
   const ShaderProgramId progId = shaderManager.getProgram(shader_program_name);
 
+  auto stagesStorage = shaderManager.getShaderStages(
+    progId,
+    {
+      .vertex = info.vertexSpecConsts,
+      .tessControl = info.tessellationControlSpecConsts,
+      .tessEval = info.tessellationEvalSpecConsts,
+      .geometry = info.geometrySpecConsts,
+      .fragment = info.fragmentSpecConsts,
+    });
+
   pipelines.emplace(
     pipelineId,
     create_graphics_pipeline_internal(
-      device, shaderManager.getProgramLayout(progId), shaderManager.getShaderStages(progId), info));
+      device, shaderManager.getProgramLayout(progId), stagesStorage.getVkStages(), info));
   graphicsPipelineParameters.emplace(pipelineId, PipelineParameters{progId, std::move(info)});
 
   GraphicsPipeline pipeline(this, pipelineId, progId);
-  print_prog_info(shaderManager.getProgramInfo(shader_program_name), shader_program_name);
+  print_prog_info(
+    shaderManager.getProgramInfo(shader_program_name), shader_program_name, stagesStorage.getLog());
   return pipeline;
 }
 
@@ -186,7 +206,17 @@ void PipelineManager::recreate()
       create_graphics_pipeline_internal(
         device,
         shaderManager.getProgramLayout(params.shaderProgram),
-        shaderManager.getShaderStages(params.shaderProgram),
+        shaderManager
+          .getShaderStages(
+            params.shaderProgram,
+            {
+              .vertex = params.info.vertexSpecConsts,
+              .tessControl = params.info.tessellationControlSpecConsts,
+              .tessEval = params.info.tessellationEvalSpecConsts,
+              .geometry = params.info.geometrySpecConsts,
+              .fragment = params.info.fragmentSpecConsts,
+            })
+          .getVkStages(),
         params.info));
   for (const auto& [id, params] : computePipelineParameters)
     pipelines.emplace(
@@ -194,7 +224,9 @@ void PipelineManager::recreate()
       createComputePipelineInternal(
         device,
         shaderManager.getProgramLayout(params.shaderProgram),
-        shaderManager.getShaderStages(params.shaderProgram)[0]));
+        shaderManager
+          .getShaderStages(params.shaderProgram, {.compute = params.info.specializationConstants})
+          .getVkStages()[0]));
 }
 
 void PipelineManager::destroyPipeline(PipelineId id)
